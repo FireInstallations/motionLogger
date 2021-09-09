@@ -52,10 +52,15 @@ byte i = 0;
 //time between values
 unsigned long OperationTime;
 
-unsigned int Frequency = 400;
+float Frequency = 400;
+
+//buffer to hold incoming packet
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE + 1]; 
 
 //-------------------- setup --------------------
-void setup() {  
+void setup() { 
+  pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
+  
   delay(1000);
   Serial.begin(115200);
   Serial.println();
@@ -69,7 +74,7 @@ void setup() {
     /* No MMA8451 detected don't do anything */
     Serial.println("MMA not found");
     while (true);
-  }
+  } else //turn LED on to sigalize the MMA is working
 
   //Reset MMA
   writeRegister8(MMA8451_REG_CTRL_REG2, 0x40);
@@ -97,43 +102,66 @@ void setup() {
   Serial.print("remote ->");
   Serial.print(remoteIP);
   Serial.printf(":%d\n", remotePort);
+
 }
 
 //-------------------- loop --------------------
-void loop() {  
-  // check status
+void loop() {
   switch (SystemStatus) {
     case WAITING_FOR_INPUT:
-      if (ReadUDP ()) {       
-        SystemStatus = READING_VALUES; 
+        digitalWrite(LED_BUILTIN, LOW);
+        
+       if (readUDP()) {
+        SystemStatus = READING_VALUES;
+
+        //turn LED off to indicate we are reading MMA values now
+        digitalWrite(LED_BUILTIN, HIGH);
+      
+        //SystemStatus = READING_VALUES; 
         OperationTime = micros();
        }
     break;
     
     case READING_VALUES:
-      //wait for new values
-      while (!TestIfMMAReady () );
-    
-      //add anothe datapoint [time, mz]
-      Data[0][i] = micros() - OperationTime; //time since last value
-      Data[1][i++] = round(MMAreadZ ()); // derives raw value from MMA
+      //wait for data
+      while (!TestIfMMAReady() );
+      Data[i++][1] = round(MMAreadZ ()); // derives raw value from MMA
+
+      //while the frequency didn't reatched the next data point read more data (if enouth time was given
+      while(micros() - OperationTime < max(((1000000/ Frequency) - 22000), (float)0.0) ){        
+        while (!TestIfMMAReady() );
+
+        Data[i][1] = round(MMAreadZ()*0.7 + Data[i][1]*0.3);      
+      }
+      //wait the resttime for next value
+      while (micros() - OperationTime < (1000000/ Frequency));
+
+      //add time to datapoint
+      Data[i][0] = micros() - OperationTime; //time since last value
       OperationTime = micros(); // new timer
 
       // if i is rolling over we got all 256 values
-      if (i == 0) 
+      if (i == 0) {
         SystemStatus = WRITING_VALUES; 
+       }
     break;
     
     case WRITING_VALUES:
+      digitalWrite(LED_BUILTIN, HIGH);
+    
       //send a value per time
-      sendUDP((String)Data[0][i] + ": " + (String)Data[1][i++]);
+      sendUDP((String)Data[i][0] + ";" + (String)Data[i++][1] + ";");
 
       // if i is rolling over we got all 256 values
-      if (i == 0) 
+      if (i == 0) {
         SystemStatus = WAITING_FOR_INPUT; 
-      break;
+      } else
+        delay(25); 
+
+      digitalWrite(LED_BUILTIN, LOW);
     break;
     }
+
 }
 
 //-------------------- Subroutines ----------------
@@ -183,9 +211,40 @@ uint8_t readRegister8(uint8_t reg) {
 }
 
 /* ----------------- { E8266 } ----------------- */
+bool readUDP() {
+  // did we got something?
+  int packetSize = Udp.parsePacket();
+
+  if (packetSize) {
+    // read the packet into packetBufffer
+    int n = Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
+    packetBuffer[n] = 0;
+
+    //is it a valid frequency?
+    if (isInteger((String)packetBuffer)) {
+      Frequency = ((String)packetBuffer).toInt();
+      
+      Serial.println("Got new frequency: " + (String)Frequency + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
+      sendUDP("got it; Set f to "+ (String)Frequency + ";");
+      
+      return true;
+    } else {
+      Serial.println("Got new text: "+ (String)packetBuffer + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
+      Serial.println("Didn't understand and therefor ignored it.");
+      sendUDP("Didn't understand; Please repeat;");
+        
+      return false; 
+     }
+
+    
+  } else
+    return false;
+}
+
+
 //Sends messages via UDP
 void sendUDP(String string) {
-  Serial.print("sendUDP : ");
+  Serial.print("sendUDP: ");
   Serial.println(string);
 
   // convert string to char array
@@ -196,38 +255,6 @@ void sendUDP(String string) {
   Udp.write(msg);
   Udp.endPacket();
 }
-
-bool ReadUDP () {
-  //Serial.println("Read UDP");
-  
-  char packetBuffer[UDP_TX_PACKET_MAX_SIZE + 1]; //buffer to hold incoming packet
-
-  // did we got something?
-  int packetSize = Udp.parsePacket();
-
-  if (packetSize) {
-    int n = Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
-    packetBuffer[n] = 0;
-
-    //is it a new frequency?
-   if (isInteger(packetBuffer)) {
-      Frequency = ((String)packetBuffer).toInt();
-
-      Serial.println("Got new frequency: " + (String)Frequency + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
-      sendUDP("got it!");
-
-      return true;
-      
-      } else {
-        Serial.println("Got new text: "+ (String)packetBuffer + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
-        Serial.println("Didn't understand and therefor ignored it.");
-        sendUDP("Didn't understand. Please repeat!");
-
-        return false;
-      }       
-    } else 
-      return false; 
-  }
 
 /* ----------------- { General } ----------------- */
 inline bool isInteger(const String s){
