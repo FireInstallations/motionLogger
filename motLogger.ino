@@ -14,17 +14,17 @@
 #define MMA8451_REG_CTRL_REG2     0x2B // reset
 
 /* The WeMos D1 Mini I2C bus uses pins:
- * D1 = SCL
- * D2 = SDA
- */
+   D1 = SCL
+   D2 = SDA
+*/
 const int sclPin = D1;
 const int sdaPin = D2;
 
 /* ----------------- { E8266 } ----------------- */
 
 #ifndef APSSID
-  #define APSSID "motlogger"
-  #define APPSK  "uF0Ro(k5!"
+#define APSSID "motlogger"
+#define APPSK  "uF0Ro(k5!"
 #endif
 
 /* Set these to your desired credentials. */
@@ -46,7 +46,8 @@ IPAddress remoteIP(192, 168, 4, 2); //remote IP to send to
 byte SystemStatus = WAITING_FOR_INPUT;
 
 //measured values
-int Data [256][2];
+int Data [256];
+long Time [256];
 byte i = 0;
 
 //time between values
@@ -55,12 +56,12 @@ unsigned long OperationTime;
 float Frequency = 400;
 
 //buffer to hold incoming packet
-char packetBuffer[UDP_TX_PACKET_MAX_SIZE + 1]; 
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE + 1];
 
 //-------------------- setup --------------------
-void setup() { 
+void setup() {
   pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
-  
+
   delay(1000);
   Serial.begin(115200);
   Serial.println();
@@ -76,19 +77,19 @@ void setup() {
     while (true);
   } else //turn LED on to sigalize the MMA is working
 
-  //Reset MMA
-  writeRegister8(MMA8451_REG_CTRL_REG2, 0x40);
+    //Reset MMA
+    writeRegister8(MMA8451_REG_CTRL_REG2, 0x40);
   while (readRegister8(MMA8451_REG_CTRL_REG2) & 0x40);
-  
+
   //  set data rate 400 Hz(0x28), low noise mode (0x04), activate operation(0x01)
   writeRegister8(MMA8451_REG_CTRL_REG1, 0x0D | 0x04 | 0x01);
 
   /* ----------------- { E8266 } ----------------- */
   Serial.println("Configuring access point...");
-  
+
   /* You can add the password parameter if you don't want the AP to be open. */
   WiFi.softAP(ssid);
-  Serial.println("SSID: " + (String)ssid);  
+  Serial.println("SSID: " + (String)ssid);
   //WiFi.softAP(ssid, password);
   //Serial.println("SSID: " + (String)ssid + " pw: " + (String)password);
 
@@ -109,58 +110,61 @@ void setup() {
 void loop() {
   switch (SystemStatus) {
     case WAITING_FOR_INPUT:
-        digitalWrite(LED_BUILTIN, LOW);
-        
-       if (readUDP()) {
+      digitalWrite(LED_BUILTIN, LOW);
+
+      if (readUDP()) {
         SystemStatus = READING_VALUES;
 
         //turn LED off to indicate we are reading MMA values now
         digitalWrite(LED_BUILTIN, HIGH);
-      
-        //SystemStatus = READING_VALUES; 
+
+        //SystemStatus = READING_VALUES;
         OperationTime = micros();
-       }
-    break;
-    
+      }
+      break;
+
     case READING_VALUES:
       //wait for data
       while (!TestIfMMAReady() );
-      Data[i++][1] = round(MMAreadZ ()); // derives raw value from MMA
+      Data[i] = round(MMAreadZ ()); // derives raw value from MMA
 
       //while the frequency didn't reatched the next data point read more data (if enouth time was given
-      while(micros() - OperationTime < max(((1000000/ Frequency) - 2500), (float)0.0) ){        
+      while (micros() - OperationTime < max(((1000000 / Frequency) - 2500), (float)0.0) ) {
         while (!TestIfMMAReady() );
 
-        Data[i][1] = round(MMAreadZ()*0.7 + Data[i][1]*0.3);      
+        Data[i] = round(MMAreadZ() * 0.7 + Data[i] * 0.3);
       }
       //wait the resttime for next value
-      while (micros() - OperationTime < (1000000/ Frequency));
+      while (micros() - OperationTime < (1000000 / Frequency));
 
       //add time to datapoint
-      Data[i][0] = micros() - OperationTime; //time since last value
+      if (i)
+        Time[i] = round(Time[i - 1] + (micros() - OperationTime) / 100); //time since last value
+      else Time[i] = 0;
+      i++;
       OperationTime = micros(); // new timer
 
       // if i is rolling over we got all 256 values
       if (i == 0) {
-        SystemStatus = WRITING_VALUES; 
-       }
-    break;
-    
+        SystemStatus = WRITING_VALUES;
+      }
+      break;
+
     case WRITING_VALUES:
       digitalWrite(LED_BUILTIN, HIGH);
-    
-      //send a value per time
-      sendUDP((String)Data[i][0] + ";" + (String)Data[i++][1] + ";");
 
+      //send a value per time
+      sendUDP((String)Time[i] + ";" + (String)Data[i] + ";");
+      i++;
       // if i is rolling over we got all 256 values
       if (i == 0) {
-        SystemStatus = WAITING_FOR_INPUT; 
+        SystemStatus = WAITING_FOR_INPUT;
       } else
-        delay(100); 
+        delay(20);
 
       digitalWrite(LED_BUILTIN, LOW);
-    break;
-    }
+      break;
+  }
 
 }
 
@@ -170,13 +174,13 @@ void loop() {
 
 // Reads status bit number 2 and returns true if it was 1.
 bool TestIfMMAReady () {
-  return readRegister8((uint8_t)MMA8451_REG_STATUS) & (uint8_t)4;  
+  return readRegister8((uint8_t)MMA8451_REG_STATUS) & (uint8_t)4;
 }
 
 //Reads values from MMA
-float MMAreadZ(){
+float MMAreadZ() {
   int16_t helperz;
-  
+
   // read x y z at once
   Wire.beginTransmission(MMA8451_ADDRESS);
   Wire.write((uint8_t)MMA8451_REG_OUT_Z_MSB);
@@ -223,21 +227,20 @@ bool readUDP() {
     //is it a valid frequency?
     if (isInteger((String)packetBuffer)) {
       Frequency = ((String)packetBuffer).toInt();
-      
+
       Serial.println("Got new frequency: " + (String)Frequency + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
-      
-      sendUDP("got it; Set f to "+ (String)Frequency + ";");
-      //i=0;
+      sendUDP("got it; Set f to " + (String)Frequency + ";");
+
       return true;
     } else {
-      Serial.println("Got new text: "+ (String)packetBuffer + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
+      Serial.println("Got new text: " + (String)packetBuffer + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
       Serial.println("Didn't understand and therefor ignored it.");
       sendUDP("Didn't understand; Please repeat;");
-        
-      return false; 
-     }
 
-    
+      return false;
+    }
+
+
   } else
     return false;
 }
@@ -258,11 +261,11 @@ void sendUDP(String string) {
 }
 
 /* ----------------- { General } ----------------- */
-inline bool isInteger(const String s){
-   if( ((!isdigit(s[0])) && (s[0] != '-') && (s[0] != '+'))) return false;
+inline bool isInteger(const String s) {
+  if ( ((!isdigit(s[0])) && (s[0] != '-') && (s[0] != '+'))) return false;
 
-   char * p;
-   strtol(s.c_str(), &p, 10);
+  char * p;
+  strtol(s.c_str(), &p, 10);
 
-   return (*p == 0);
+  return (*p == 0);
 }
