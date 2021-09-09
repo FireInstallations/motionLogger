@@ -128,7 +128,7 @@ void loop() {
       Data[i++][1] = round(MMAreadZ ()); // derives raw value from MMA
 
       //while the frequency didn't reatched the next data point read more data (if enouth time was given
-      while(micros() - OperationTime < max(((1000000/ Frequency) - 22000), (float)0.0) ){        
+      while(micros() - OperationTime < max(((1000000/ Frequency) - 2500), (float)0.0) ){        
         while (!TestIfMMAReady() );
 
         Data[i][1] = round(MMAreadZ()*0.7 + Data[i][1]*0.3);      
@@ -156,7 +156,7 @@ void loop() {
       if (i == 0) {
         SystemStatus = WAITING_FOR_INPUT; 
       } else
-        delay(25); 
+        delay(100); 
 
       digitalWrite(LED_BUILTIN, LOW);
     break;
@@ -225,8 +225,9 @@ bool readUDP() {
       Frequency = ((String)packetBuffer).toInt();
       
       Serial.println("Got new frequency: " + (String)Frequency + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
-      sendUDP("got it; Set f to "+ (String)Frequency + ";");
       
+      sendUDP("got it; Set f to "+ (String)Frequency + ";");
+      //i=0;
       return true;
     } else {
       Serial.println("Got new text: "+ (String)packetBuffer + " from " + Udp.remoteIP().toString() + ":" + (String)Udp.remotePort());
