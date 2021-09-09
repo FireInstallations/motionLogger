@@ -18,6 +18,8 @@ char  ReplyBuffer[] = "acknowledged\r\n";       // a string to send back
 
 
 unsigned int localPort = 90;      // local port to listen on
+//unsigned int localPort = 91;      // local port to send
+
 IPAddress myIP;
 WiFiUDP Udp;
 
@@ -46,7 +48,7 @@ void loop() {
     Serial.printf("Received packet of size %d from %s:%d\n    (to %s:%d, free heap = %d B)\n",
                   packetSize,
                   Udp.remoteIP().toString().c_str(), Udp.remotePort(),
-                  Udp.destinationIP().toString().c_str(), Udp.localPort(),
+                  Udp.localIP().toString().c_str(), Udp.localPort(),
                   ESP.getFreeHeap());
 
     // read the packet into packetBufffer
