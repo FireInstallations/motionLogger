@@ -81,8 +81,8 @@ void setup() {
     writeRegister8(MMA8451_REG_CTRL_REG2, 0x40);
   while (readRegister8(MMA8451_REG_CTRL_REG2) & 0x40);
 
-  //  set data rate 400 Hz(0x28), low noise mode (0x04), activate operation(0x01)
-  writeRegister8(MMA8451_REG_CTRL_REG1, 0x0D | 0x04 | 0x01);
+  //  set data rate 800 Hz(0x00), low noise mode (0x04), activate operation(0x01)
+  writeRegister8(MMA8451_REG_CTRL_REG1, 0x00 | 0x04 | 0x01);
 
   /* ----------------- { E8266 } ----------------- */
   Serial.println("Configuring access point...");
@@ -129,7 +129,7 @@ void loop() {
       Data[i] = round(MMAreadZ ()); // derives raw value from MMA
 
       //while the frequency didn't reatched the next data point read more data (if enouth time was given
-      while (micros() - OperationTime < max(((1000000 / Frequency) - 2500), (float)0.0) ) {
+      while (micros() - OperationTime < max(((1000000 / Frequency) - 1250), (float)0.0) ) {
         while (!TestIfMMAReady() );
 
         Data[i] = round(MMAreadZ() * 0.7 + Data[i] * 0.3);
